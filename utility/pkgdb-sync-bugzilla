@@ -186,7 +186,7 @@ class Bugzilla(object):
         return self.userCache[username]['bugzilla_email'].lower()
 
     def add_edit_component(self, package, collection, owner, description,
-            qacontact=None, cclist=None):
+            active, qacontact=None, cclist=None):
         '''Add or update a component to have the values specified.
         '''
         # Turn the cclist into something usable by bugzilla
@@ -246,6 +246,9 @@ class Bugzilla(object):
                         data['initialcclist'] = initialCCList
                         break
 
+            if product[pkgKey]['is_active'] is not active:
+                data['is_active'] = active
+
             if data:
                 ### FIXME: initialowner has been made mandatory for some
                 # reason.  Asking dkl why.
@@ -257,11 +260,12 @@ class Bugzilla(object):
                 if DRY_RUN:
                     print '[EDITCOMP] Changing via editComponent(' \
                           '%s, %s, "xxxxx")' % (data, self.username)
-                    print '[EDITCOMP] Former values: %s|%s|%s|%s' % (
+                    print '[EDITCOMP] Former values: %s|%s|%s|%s active=%s' % (
                             product[pkgKey]['initialowner'],
                             product[pkgKey]['description'],
                             product[pkgKey]['initialqacontact'],
-                            product[pkgKey]['initialcclist'])
+                            product[pkgKey]['initialcclist'],
+                            product[pkgKey]['is_active'])
                 else:
                     try:
                         self.server.editcomponent(data)
@@ -406,6 +410,11 @@ if __name__ == '__main__':
     req = requests.get('%s/api/bugzilla/?format=json' % PKGDBSERVER)
     acls = req.json()['bugzillaAcls']
 
+    fedora_retired = requests.get("%s/api/retired?collection=Fedora" %
+        PKGDBSERVER).content.splitlines()
+    epel_retired = requests.get("%s/api/retired?collection=Fedora EPEL" %
+        PKGDBSERVER).content.splitlines()
+
     # Initialize the connection to bugzilla
     bugzilla = Bugzilla(BZSERVER, BZUSER, BZPASS, acls)
 
@@ -417,11 +426,18 @@ if __name__ == '__main__':
                 print pkg
             pkgInfo = acls[product][pkg]
             try:
+                active = True
+                if collection == "Fedora":
+                    active = pkg not in fedora_retired
+                elif collection == "Fedora EPEL":
+                    active = pkg not in epel_retired
+
                 bugzilla.add_edit_component(
                         pkg,
                         product,
                         pkgInfo['owner'],
                         pkgInfo['summary'],
+                        active,
                         pkgInfo['qacontact'],
                         pkgInfo['cclist'])
             except ValueError, e:
